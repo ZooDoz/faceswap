@@ -449,7 +449,7 @@ class ExtractArgs(ExtractConvertArgs):
                     "\n'dlib': Dlib Pose Predictor. Faster, less "
                     "\n\tresource intensive, but less accurate."
                     "\n'fan': Face Alignment Network. Best aligner."
-                    "\n\tGPU heavy."})
+                    "\n\tGPU heavy, slow when not running on GPU"})
         argument_list.append({"opts": ("-r", "--rotate-images"),
                               "type": str,
                               "dest": "rotate_images",
@@ -490,6 +490,16 @@ class ExtractArgs(ExtractConvertArgs):
                               "help": "The output size of extracted faces. Make sure that the "
                                       "model you intend to train supports your required size. "
                                       "This will only need to be changed for hi-res models."})
+        argument_list.append({"opts": ("-min", "--min-size"),
+                              "type": int,
+                              "action": Slider,
+                              "dest": "min_size",
+                              "min_max": (0, 1080),
+                              "default": 0,
+                              "rounding": 20,
+                              "help": "Filters out faces detected below this size. Length, in "
+                                      "pixels across the diagonal of the bounding box. Set to 0 "
+                                      "for off"})
         argument_list.append({"opts": ("-s", "--skip-existing"),
                               "action": "store_true",
                               "dest": "skip_existing",
@@ -581,7 +591,7 @@ class ConvertArgs(ExtractConvertArgs):
                         "dfl",
                         #  "cnn",  Removed until implemented
                         "none"],
-            "default": "facehull_rect",
+            "default": "facehull",
             "help": "R|Mask to use to replace faces."
                     "\nellipse: Oval around face."
                     "\nfacehull: Face cutout based on landmarks."
