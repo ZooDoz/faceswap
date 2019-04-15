@@ -7,14 +7,20 @@ from lib.config import FaceswapConfig
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
-MASK_TYPES = ["none", "dfaker", "dfl_full"]
-MASK_INFO = "The mask to be used for training. Select none to not use a mask"
+MASK_TYPES = ["none", "dfaker", "dfl_full", "components"]
+MASK_INFO = ("The mask to be used for training:"
+             "\n\tnone: Doesn't use any mask."
+             "\n\tdfaker: A basic face hull mask using a facehull of all 68 landmarks."
+             "\n\tdfl_full: An improved face hull mask using a facehull of 3 facial parts"
+             "\n\tcomponents: An improved face hull mask using a facehull of 8 facial parts")
 COVERAGE_INFO = ("How much of the extracted image to train on. Generally the model is optimized\n"
                  "to the default value. Sensible values to use are:"
                  "\n\t62.5%% spans from eyebrow to eyebrow."
                  "\n\t75.0%% spans from temple to temple."
                  "\n\t87.5%% spans from ear to ear."
                  "\n\t100.0%% is a mugshot.")
+ADDITIONAL_INFO = ("\nNB: Unless specifically stated, values changed here will only take effect "
+                   "when creating a new model.")
 
 
 class Config(FaceswapConfig):
@@ -26,7 +32,7 @@ class Config(FaceswapConfig):
         # << GLOBAL OPTIONS >> #
         section = "global"
         self.add_section(title=section,
-                         info="Options that apply to all models")
+                         info="Options that apply to all models" + ADDITIONAL_INFO)
         self.add_item(
             section=section, title="icnr_init", datatype=bool, default=False,
             info="Use ICNR Kernel Initializer for upscaling.\nThis can help reduce the "
@@ -37,20 +43,24 @@ class Config(FaceswapConfig):
                  "Might increase speed at cost of VRAM")
         self.add_item(
             section=section, title="reflect_padding", datatype=bool, default=False,
-            info="Use reflect padding rather than zero padding.")
+            info="Use reflect padding rather than zero padding. Only enable this option if the "
+                 "model you are training has a distinct line appearing around the edge of the "
+                 "swap area.")
         self.add_item(
-            section=section, title="dssim_mask_loss", datatype=bool, default=True,
-            info="If using a mask, Use DSSIM loss for Mask training rather than Mean Absolute "
-                 "Error\nMay increase overall quality.")
-        self.add_item(
-            section=section, title="penalized_mask_loss", datatype=bool, default=True,
-            info="If using a mask, Use Penalized loss for Mask training. Can stack with DSSIM.\n"
+            section=section, title="dssim_loss", datatype=bool, default=True, fixed=False,
+            info="Use DSSIM for Loss rather than Mean Absolute Error\n"
                  "May increase overall quality.")
+        self.add_item(
+            section=section, title="penalized_mask_loss", datatype=bool, default=True, fixed=False,
+            info="If using a mask, This penalizes the loss for the masked area, to give higher "
+                 "priority to the face area. \nShould increase overall quality and speed up "
+                 "training. This should probably be left at True")
 
         # << DFAKER OPTIONS >> #
         section = "model.dfaker"
         self.add_section(title=section,
-                         info="Dfaker Model (Adapted from https://github.com/dfaker/df)")
+                         info="Dfaker Model (Adapted from https://github.com/dfaker/df)" +
+                         ADDITIONAL_INFO)
         self.add_item(
             section=section, title="mask_type", datatype=str, default="dfaker",
             choices=MASK_TYPES, info=MASK_INFO)
@@ -62,7 +72,7 @@ class Config(FaceswapConfig):
         section = "model.dfl_h128"
         self.add_section(title=section,
                          info="DFL H128 Model (Adapted from "
-                              "https://github.com/iperov/DeepFaceLab)")
+                              "https://github.com/iperov/DeepFaceLab)" + ADDITIONAL_INFO)
         self.add_item(
             section=section, title="lowmem", datatype=bool, default=False,
             info="Lower memory mode. Set to 'True' if having issues with VRAM useage.\nNB: Models "
@@ -78,11 +88,21 @@ class Config(FaceswapConfig):
         section = "model.iae"
         self.add_section(title=section,
                          info="Intermediate Auto Encoder. Based on Original Model, uses "
-                              "intermediate layers to try to better get details")
+                              "intermediate layers to try to better get details" + ADDITIONAL_INFO)
         self.add_item(
-            section=section, title="dssim_loss", datatype=bool, default=False,
-            info="Use DSSIM for Loss rather than Mean Absolute Error\n"
-                 "May increase overall quality.")
+            section=section, title="mask_type", datatype=str, default="none",
+            choices=MASK_TYPES, info=MASK_INFO)
+        self.add_item(
+            section=section, title="coverage", datatype=float, default=62.5, rounding=1,
+            min_max=(62.5, 100.0), info=COVERAGE_INFO)
+
+        # << LIGHTWEIGHT MODEL OPTIONS >> #
+        section = "model.lightweight"
+        self.add_section(title=section,
+                         info="A lightweight version of the Original Faceswap Model, designed to "
+                              "run on lower end GPUs (~2GB).\nDon't expect great results, but it "
+                              "allows users with lower end cards to play with the "
+                              "software." + ADDITIONAL_INFO)
         self.add_item(
             section=section, title="mask_type", datatype=str, default="none",
             choices=MASK_TYPES, info=MASK_INFO)
@@ -93,15 +113,11 @@ class Config(FaceswapConfig):
         # << ORIGINAL MODEL OPTIONS >> #
         section = "model.original"
         self.add_section(title=section,
-                         info="Original Faceswap Model")
+                         info="Original Faceswap Model" + ADDITIONAL_INFO)
         self.add_item(
             section=section, title="lowmem", datatype=bool, default=False,
             info="Lower memory mode. Set to 'True' if having issues with VRAM useage.\nNB: Models "
                  "with a changed lowmem mode are not compatible with each other.")
-        self.add_item(
-            section=section, title="dssim_loss", datatype=bool, default=False,
-            info="Use DSSIM for Loss rather than Mean Absolute Error\n"
-                 "May increase overall quality.")
         self.add_item(
             section=section, title="mask_type", datatype=str, default="none",
             choices=MASK_TYPES, info=MASK_INFO)
@@ -112,17 +128,18 @@ class Config(FaceswapConfig):
         # << UNBALANCED MODEL OPTIONS >> #
         section = "model.unbalanced"
         self.add_section(title=section,
-                         info="An unbalanced model with adjustable input size options.\n"
-                              "This is an unbalanced model so b>a swaps may not work well")
+                         info="An unbalanced model with adjustable input size options.\nThis is "
+                              "an unbalanced model so b>a swaps may not work "
+                              "well" + ADDITIONAL_INFO)
         self.add_item(
             section=section, title="lowmem", datatype=bool, default=False,
             info="Lower memory mode. Set to 'True' if having issues with VRAM useage.\nNB: Models "
                  "with a changed lowmem mode are not compatible with each other. NB: lowmem will "
                  "override cutom nodes and complexity settings.")
         self.add_item(
-            section=section, title="dssim_loss", datatype=bool, default=False,
-            info="Use DSSIM for Loss rather than Mean Absolute Error\n"
-                 "May increase overall quality.")
+            section=section, title="clipnorm", datatype=bool, default=True,
+            info="Controls gradient clipping of the optimizer. Can prevent model corruption at "
+                 "the expense of VRAM")
         self.add_item(
             section=section, title="mask_type", datatype=str, default="none",
             choices=MASK_TYPES, info=MASK_INFO)
@@ -161,16 +178,12 @@ class Config(FaceswapConfig):
         section = "model.villain"
         self.add_section(title=section,
                          info="A Higher resolution version of the Original "
-                              "Model by VillainGuy.\n"
-                              "Extremely VRAM heavy. Full model requires 9GB+ for batchsize 16")
+                              "Model by VillainGuy.\nExtremely VRAM heavy. Full model requires "
+                              "9GB+ for batchsize 16" + ADDITIONAL_INFO)
         self.add_item(
             section=section, title="lowmem", datatype=bool, default=False,
             info="Lower memory mode. Set to 'True' if having issues with VRAM useage.\nNB: Models "
                  "with a changed lowmem mode are not compatible with each other.")
-        self.add_item(
-            section=section, title="dssim_loss", datatype=bool, default=False,
-            info="Use DSSIM for Loss rather than Mean Absolute Error\n"
-                 "May increase overall quality.")
         self.add_item(
             section=section, title="mask_type", datatype=str, default="none",
             choices=["none", "dfaker", "dfl_full"],

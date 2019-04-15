@@ -12,7 +12,7 @@ from scipy import signal
 from sklearn import decomposition
 from tqdm import tqdm
 
-from . import AlignmentData, Annotate, ExtractedFaces, Faces, Frames
+from . import Annotate, ExtractedFaces, Faces, Frames
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
@@ -160,7 +160,7 @@ class Check():
             f_hash = face["face_hash"]
             if not self.alignments.hashes_to_frame.get(f_hash, None):
                 logger.debug("Returning: '%s'", face["face_fullname"])
-                yield face["face_fullname"]
+                yield face["face_fullname"], -1
 
     def output_results(self, items_output):
         """ Output the results in the requested format """
@@ -170,7 +170,7 @@ class Check():
         if self.output == "move":
             self.move_file(items_output)
             return
-        if self.job == "multi-faces":
+        if self.job in ("multi-faces", "leftover-faces"):
             # Strip the index for printed/file output
             items_output = [item[0] for item in items_output]
         output_message = "-----------------------------------------------\r\n"
@@ -219,7 +219,7 @@ class Check():
         logger.info("Moving %s faces(s) to '%s'", len(items_output), output_folder)
         for frame, idx in items_output:
             src = os.path.join(self.source_dir, frame)
-            dst_folder = os.path.join(output_folder, str(idx))
+            dst_folder = os.path.join(output_folder, str(idx)) if idx != -1 else output_folder
             if not os.path.isdir(dst_folder):
                 logger.debug("Creating folder: '%s'", dst_folder)
                 os.makedirs(dst_folder)
@@ -449,36 +449,38 @@ class Legacy():
 class Merge():
     """ Merge two alignments files into one """
     def __init__(self, alignments, arguments):
-        self.alignments = alignments
-        self.alignments2 = AlignmentData(arguments.alignments_file2, "json")
+        self.final_alignments = alignments[0]
+        self.process_alignments = alignments[1:]
 
     def process(self):
         """Process the alignments file merge """
         logger.info("[MERGE ALIGNMENTS]")  # Tidy up cli output
         skip_count = 0
         merge_count = 0
-        for _, src_alignments, _, frame in tqdm(self.alignments2.yield_faces(),
-                                                desc="Merging Alignments",
-                                                total=self.alignments2.frames_count):
-            for idx, alignment in enumerate(src_alignments):
-                if not alignment.get("hash", None):
-                    logger.warning("Alignment '%s':%s has no Hash! Skipping", frame, idx)
-                    skip_count += 1
-                    continue
-                if self.check_exists(frame, alignment, idx):
-                    skip_count += 1
-                    continue
-                self.merge_alignment(frame, alignment, idx)
-                merge_count += 1
+        total_count = sum([alignments.frames_count for alignments in self.process_alignments])
+        with tqdm(desc="Merging Alignments", total=total_count) as pbar:
+            for alignments in self.process_alignments:
+                for _, src_alignments, _, frame in alignments.yield_faces():
+                    for idx, alignment in enumerate(src_alignments):
+                        if not alignment.get("hash", None):
+                            logger.warning("Alignment '%s':%s has no Hash! Skipping", frame, idx)
+                            skip_count += 1
+                            continue
+                        if self.check_exists(frame, alignment, idx):
+                            skip_count += 1
+                            continue
+                        self.merge_alignment(frame, alignment, idx)
+                        merge_count += 1
+                    pbar.update(1)
         logger.info("Alignments Merged: %s", merge_count)
         logger.info("Alignments Skipped: %s", skip_count)
         if merge_count != 0:
             self.set_destination_filename()
-            self.alignments.save()
+            self.final_alignments.save()
 
     def check_exists(self, frame, alignment, idx):
         """ Check whether this face already exists """
-        existing_frame = self.alignments.hashes_to_frame.get(alignment["hash"], None)
+        existing_frame = self.final_alignments.hashes_to_frame.get(alignment["hash"], None)
         if not existing_frame:
             return False
         if frame in existing_frame.keys():
@@ -493,14 +495,16 @@ class Merge():
         """ Merge the source alignment into the destination """
         logger.debug("Merging alignment: (frame: %s, src_idx: %s, hash: %s)",
                      frame, idx, alignment["hash"])
-        self.alignments.data.setdefault(frame, list()).append(alignment)
+        self.final_alignments.data.setdefault(frame, list()).append(alignment)
 
     def set_destination_filename(self):
         """ Set the destination filename """
-        orig, ext = os.path.splitext(self.alignments.file)
-        filename = "{}_merged{}".format(orig, ext)
+        folder = os.path.split(self.final_alignments.file)[0]
+        ext = os.path.splitext(self.final_alignments.file)[1]
+        now = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = os.path.join(folder, "alignments_merged_{}{}".format(now, ext))
         logger.debug("Output set to: '%s'", filename)
-        self.alignments.file = filename
+        self.final_alignments.file = filename
 
 
 class Reformat():

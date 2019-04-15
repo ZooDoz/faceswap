@@ -120,6 +120,20 @@ class ScriptExecutor():
             safe_shutdown()
 
 
+class Radio(argparse.Action):  # pylint: disable=too-few-public-methods
+    """ Adds support for the GUI Radio buttons
+
+        Just a wrapper class to tell the gui to use radio buttons instead of combo boxes
+        """
+    def __init__(self, option_strings, dest, nargs=None, **kwargs):
+        if nargs is not None:
+            raise ValueError("nargs not allowed")
+        super().__init__(option_strings, dest, **kwargs)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest, values)
+
+
 class Slider(argparse.Action):  # pylint: disable=too-few-public-methods
     """ Adds support for the GUI slider
 
@@ -156,8 +170,11 @@ class Slider(argparse.Action):  # pylint: disable=too-few-public-methods
 class FullPaths(argparse.Action):  # pylint: disable=too-few-public-methods
     """ Expand user- and relative-paths """
     def __call__(self, parser, namespace, values, option_string=None):
-        setattr(namespace, self.dest, os.path.abspath(
-            os.path.expanduser(values)))
+        if isinstance(values, (list, tuple)):
+            vals = [os.path.abspath(os.path.expanduser(val)) for val in values]
+        else:
+            vals = os.path.abspath(os.path.expanduser(values))
+        setattr(namespace, self.dest, vals)
 
 
 class DirFullPaths(FullPaths):
@@ -174,9 +191,7 @@ class FileFullPaths(FullPaths):
     """
     # pylint: disable=too-few-public-methods
     def __init__(self, option_strings, dest, nargs=None, filetypes=None, **kwargs):
-        super(FileFullPaths, self).__init__(option_strings, dest, **kwargs)
-        if nargs is not None:
-            raise ValueError("nargs not allowed")
+        super().__init__(option_strings, dest, nargs, **kwargs)
         self.filetypes = filetypes
 
     def _get_kwargs(self):
@@ -191,6 +206,13 @@ class FileFullPaths(FullPaths):
                  "metavar",
                  "filetypes"]
         return [(name, getattr(self, name)) for name in names]
+
+
+class FilesFullPaths(FileFullPaths):  # pylint: disable=too-few-public-methods
+    """ Class that the gui uses to determine that the input can take multiple files as an input.
+        Inherits functionality from FileFullPaths
+        Has the effect of giving the user 2 Open Dialogue buttons in the gui """
+    pass
 
 
 class DirOrFileFullPaths(FileFullPaths):  # pylint: disable=too-few-public-methods
@@ -388,7 +410,7 @@ class ExtractConvertArgs(FaceSwapArgs):
                                       "Defaults to 'output'"})
         argument_list.append({"opts": ("-al", "--alignments"),
                               "action": FileFullPaths,
-                              "filetypes": 'alignments',
+                              "filetypes": "alignments",
                               "type": str,
                               "dest": "alignments_path",
                               "help": "Optional path to an alignments file."})
@@ -402,7 +424,8 @@ class ExtractConvertArgs(FaceSwapArgs):
                               "help": "Threshold for positive face recognition. For use with "
                                       "nfilter or filter. Lower values are stricter."})
         argument_list.append({"opts": ("-n", "--nfilter"),
-                              "type": str,
+                              "action": FilesFullPaths,
+                              "filetypes": "image",
                               "dest": "nfilter",
                               "nargs": "+",
                               "default": None,
@@ -411,7 +434,8 @@ class ExtractConvertArgs(FaceSwapArgs):
                                       "portrait. Multiple images can be added "
                                       "space separated"})
         argument_list.append({"opts": ("-f", "--filter"),
-                              "type": str,
+                              "action": FilesFullPaths,
+                              "filetypes": "image",
                               "dest": "filter",
                               "nargs": "+",
                               "default": None,
@@ -443,6 +467,7 @@ class ExtractArgs(ExtractConvertArgs):
                                       "fallback."})
         argument_list.append({
             "opts": ("-D", "--detector"),
+            "action": Radio,
             "type": str.lower,
             "choices":  PluginLoader.get_available_extractors(
                 "detect"),
@@ -455,9 +480,12 @@ class ExtractArgs(ExtractConvertArgs):
                     "\n'mtcnn': slower than dlib, but uses fewer"
                     "\n\tresources whilst detecting more faces and"
                     "\n\tmore false positives. Has superior"
-                    "\n\talignment to dlib"})
+                    "\n\talignment to dlib"
+                    "\n's3fd': Can detect more faces than mtcnn, but"
+                    "\n\t is a lot more resource intensive"})
         argument_list.append({
             "opts": ("-A", "--aligner"),
+            "action": Radio,
             "type": str.lower,
             "choices": PluginLoader.get_available_extractors(
                 "align"),
@@ -517,6 +545,17 @@ class ExtractArgs(ExtractConvertArgs):
                               "help": "Filters out faces detected below this size. Length, in "
                                       "pixels across the diagonal of the bounding box. Set to 0 "
                                       "for off"})
+        argument_list.append({"opts": ("-een", "--extract-every-n"),
+                              "type": int,
+                              "action": Slider,
+                              "dest": "extract_every_n",
+                              "min_max": (1, 100),
+                              "default": 1,
+                              "rounding": 1,
+                              "help": "Extract every 'nth' frame. This option will skip frames "
+                                      "when extracting faces. For example a value of 1 will "
+                                      "extract faces from every frame, a value of 10 will extract "
+                                      "faces from every 10th frame."})
         argument_list.append({"opts": ("-s", "--skip-existing"),
                               "action": "store_true",
                               "dest": "skip_existing",
@@ -589,18 +628,21 @@ class ConvertArgs(ExtractConvertArgs):
                                       "specified, all faces will be "
                                       "converted"})
         argument_list.append({"opts": ("-t", "--trainer"),
+                              "action": Radio,
                               "type": str.lower,
                               "choices": PluginLoader.get_available_models(),
                               "default": PluginLoader.get_default_model(),
                               "help": "Select the trainer that was used to "
                                       "create the model"})
         argument_list.append({"opts": ("-c", "--converter"),
+                              "action": Radio,
                               "type": str.lower,
                               "choices": PluginLoader.get_available_converters(),
                               "default": "masked",
                               "help": "Converter to use"})
         argument_list.append({
             "opts": ("-M", "--mask-type"),
+            "action": Radio,
             "type": str.lower,
             "dest": "mask_type",
             "choices": ["ellipse",
@@ -643,6 +685,7 @@ class ConvertArgs(ExtractConvertArgs):
                               "default": 1,
                               "help": "Number of GPUs to use for conversion"})
         argument_list.append({"opts": ("-sh", "--sharpen"),
+                              "action": Radio,
                               "type": str.lower,
                               "dest": "sharpen_image",
                               "choices": ["box_filter", "gaussian_filter", "none"],
@@ -762,12 +805,27 @@ class TrainArgs(FaceSwapArgs):
                                       "training data will be stored. "
                                       "Defaults to 'model'"})
         argument_list.append({"opts": ("-t", "--trainer"),
+                              "action": Radio,
                               "type": str.lower,
                               "choices": PluginLoader.get_available_models(),
                               "default": PluginLoader.get_default_model(),
-                              "help": "Select which trainer to use, Use "
-                                      "LowMem for cards with less than 2GB of "
-                                      "VRAM"})
+                              "help": "R|Select which trainer to use. Trainers can be"
+                                      "\nconfigured from the edit menu or the config folder."
+                                      "\n'original': The original model created by /u/deepfakes."
+                                      "\n'dfaker': 64px in/128px out model from dfaker."
+                                      "\n\tEnable 'warp-to-landmarks' for full dfaker method."
+                                      "\n'dfl-h128'. 128px in/out model from deepfacelab"
+                                      "\n'iae': A model that uses intermediate layers to try to"
+                                      "\n\tget better details"
+                                      "\n'lightweight': A lightweight model for low-end cards."
+                                      "\n\tDon't expect great results. Can train as low as 1.6GB"
+                                      "\n\twith batch size 8."
+                                      "\n'unbalanced': 128px in/out model from andenixa. The"
+                                      "\n\tautoencoders are unbalanced so B>A swaps won't work so"
+                                      "\n\twell. Very configurable,"
+                                      "\n'villain': 128px in/out model from villainguy. Very"
+                                      "\n\tresource hungry (11GB for batchsize 16). Good for"
+                                      "\n\tdetails, but more susceptible to color differences"})
         argument_list.append({"opts": ("-s", "--save-interval"),
                               "type": int,
                               "action": Slider,
@@ -804,7 +862,7 @@ class TrainArgs(FaceSwapArgs):
                               "dest": "preview_scale",
                               "min_max": (25, 200),
                               "rounding": 25,
-                              "default": 100,
+                              "default": 50,
                               "help": "Percentage amount to scale the preview by."})
         argument_list.append({"opts": ("-p", "--preview"),
                               "action": "store_true",
@@ -831,6 +889,25 @@ class TrainArgs(FaceSwapArgs):
                               "help": "Disables TensorBoard logging. NB: Disabling logs means "
                                       "that you will not be able to use the graph or analysis "
                                       "for this session in the GUI."})
+        argument_list.append({"opts": ("-pp", "--ping-pong"),
+                              "action": "store_true",
+                              "dest": "pingpong",
+                              "default": False,
+                              "help": "Enable ping pong training. Trains one side at a time, "
+                                      "switching sides at each save iteration. Training will take "
+                                      "2 to 4 times longer, with about a 30%%-50%% reduction in "
+                                      "VRAM useage. NB: Preview won't show until both sides have "
+                                      "been trained once."})
+        argument_list.append({"opts": ("-msg", "--memory-saving-gradients"),
+                              "action": "store_true",
+                              "dest": "memory_saving_gradients",
+                              "default": False,
+                              "help": "Trades off VRAM useage against computation time. Can fit "
+                                      "larger models into memory at a cost of slower training "
+                                      "speed. 50%%-150%% batch size increase for 20%%-50%% longer "
+                                      "training time. NB: Launch time will be significantly "
+                                      "delayed. Switching sides using ping-pong training will "
+                                      "take longer."})
         argument_list.append({"opts": ("-wl", "--warp-to-landmarks"),
                               "action": "store_true",
                               "dest": "warp_to_landmarks",

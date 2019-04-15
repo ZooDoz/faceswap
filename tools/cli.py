@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """ Command Line Arguments for tools """
 from lib.cli import FaceSwapArgs
-from lib.cli import (ContextFullPaths, DirFullPaths,
-                     FileFullPaths, SaveFileFullPaths, Slider)
+from lib.cli import (ContextFullPaths, DirFullPaths, FileFullPaths, FilesFullPaths,
+                     SaveFileFullPaths, Radio, Slider)
 from lib.utils import _image_extensions
 
 
@@ -20,8 +20,8 @@ class AlignmentsArgs(FaceSwapArgs):
         align_eyes = "\n\tCan optionally use the align-eyes switch (-ae)."
         argument_list = list()
         argument_list.append({
-
             "opts": ("-j", "--job"),
+            "action": Radio,
             "type": str,
             "choices": ("draw", "extract", "extract-large", "manual", "merge",
                         "missing-alignments", "missing-frames", "legacy", "leftover-faces",
@@ -40,9 +40,8 @@ class AlignmentsArgs(FaceSwapArgs):
                     "\n\tfor excluding low-res images from a training set." +
                     frames_and_faces_dir + align_eyes +
                     "\n'manual': Manually view and edit landmarks." + frames_dir + align_eyes +
-                    "\n'merge': Merge multiple alignment files into one. Specify the main"
-                    "\n\talignments file with the -a flag and the file to be merged with the"
-                    "\n\t-a2 flag."
+                    "\n'merge': Merge multiple alignment files into one. Specify a space "
+                    "\n\tseparated list of alignments files with the -a flag."
                     "\n'missing-alignments': Identify frames that do not exist in the alignments"
                     "\n\tfile." + output_opts + frames_dir +
                     "\n'missing-frames': Identify frames in the alignments file that do no "
@@ -83,20 +82,14 @@ class AlignmentsArgs(FaceSwapArgs):
                     "\n\tnamed '<frame_name>_face index' (i.e. how they are named after running"
                     "\n\textract)." + faces_dir})
         argument_list.append({"opts": ("-a", "--alignments_file"),
-                              "action": FileFullPaths,
+                              "action": FilesFullPaths,
                               "dest": "alignments_file",
+                              "nargs": "+",
                               "required": True,
                               "filetypes": "alignments",
-                              "help": "Full path to the alignments "
-                                      "file to be processed."})
-        argument_list.append({"opts": ("-a2", "--alignments_file2"),
-                              "action": FileFullPaths,
-                              "dest": "alignments_file2",
-                              "required": False,
-                              "filetypes": "alignments",
-                              "help": "Full path to the alignments file to "
-                                      "be merged into the main alignments "
-                                      "file (merge only)"})
+                              "help": "Full path to the alignments file to be processed. If "
+                                      "merging alignments, then multiple files can be selected, "
+                                      "space separated"})
         argument_list.append({"opts": ("-fc", "-faces_folder"),
                               "action": DirFullPaths,
                               "dest": "faces_dir",
@@ -113,6 +106,7 @@ class AlignmentsArgs(FaceSwapArgs):
                                       "data in. Defaults to same as source."})
         argument_list.append({
             "opts": ("-o", "--output"),
+            "action": Radio,
             "type": str,
             "choices": ("console", "file", "move"),
             "default": "console",
@@ -170,6 +164,7 @@ class EffmpegArgs(FaceSwapArgs):
     def get_argument_list(self):
         argument_list = list()
         argument_list.append({"opts": ('-a', '--action'),
+                              "action": Radio,
                               "dest": "action",
                               "choices": ("extract", "gen-vid", "get-fps",
                                           "get-info", "mux-audio", "rescale",
@@ -229,6 +224,7 @@ class EffmpegArgs(FaceSwapArgs):
                                       "videos."})
 
         argument_list.append({"opts": ("-ef", "--extract-filetype"),
+                              "action": Radio,
                               "choices": _image_extensions,
                               "dest": "extract_ext",
                               "default": ".png",
@@ -368,6 +364,7 @@ class SortArgs(FaceSwapArgs):
                                       "faces."})
 
         argument_list.append({"opts": ('-fp', '--final-process'),
+                              "action": Radio,
                               "type": str,
                               "choices": ("folders", "rename"),
                               "dest": 'final_process',
@@ -392,6 +389,7 @@ class SortArgs(FaceSwapArgs):
                                       "same directory."})
 
         argument_list.append({"opts": ('-s', '--sort-by'),
+                              "action": Radio,
                               "type": str,
                               "choices": ("blur", "face", "face-cnn",
                                           "face-cnn-dissim", "face-dissim",
@@ -404,6 +402,7 @@ class SortArgs(FaceSwapArgs):
                                       "Default: hist"})
 
         argument_list.append({"opts": ('-g', '--group-by'),
+                              "action": Radio,
                               "type": str,
                               "choices": ("blur", "face", "face-cnn",
                                           "face-yaw", "hist"),
